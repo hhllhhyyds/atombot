@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
+use log::debug;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::provider::llm_provider::{LLMProvider, LLMResponse, ToolCallRequest};
-use crate::provider::message::Message;
+use super::llm_provider::{LLMProvider, LLMResponse, ToolCallRequest};
+use super::message::Message;
 
 // ── OpenAI API 响应结构（仅用于反序列化） ────────────────────────────────────
 
@@ -133,7 +134,7 @@ impl LLMProvider for OpenAIProvider {
             "{}/v1/chat/completions",
             self.api_base.trim_end_matches('/')
         );
-        eprintln!("[DEBUG] URL: {}, model: {}", url, model);
+        debug!("Request URL: {}, model: {}", url, model);
         // 将 Message 转换为 HashMap 供 serde_json 序列化
         let messages: Vec<HashMap<String, Value>> = messages
             .into_iter()
@@ -163,6 +164,7 @@ impl LLMProvider for OpenAIProvider {
             body["tools"] = json!(tools);
             body["tool_choice"] = json!("auto");
         }
+        debug!("Sending request to {}\nbody:\n{}", url, body);
         let resp = self
             .client
             .post(&url)
@@ -179,6 +181,7 @@ impl LLMProvider for OpenAIProvider {
         let api_resp: ApiResponse = resp.json().await.context("failed to parse API response")?;
         self.parse_response(api_resp)
     }
+
     fn get_default_model(&self) -> String {
         self.default_model.clone()
     }

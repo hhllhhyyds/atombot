@@ -1,9 +1,9 @@
-use crate::provider::message::Message;
 use std::collections::HashMap;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use async_trait::async_trait;
+use super::message::Message;
 
 /// A tool call request from the LLM
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -88,7 +88,6 @@ pub trait LLMProvider {
         max_tokens: u32,
         temperature: f64,
     ) -> Result<LLMResponse, anyhow::Error>;
-
 
     fn get_default_model(&self) -> String;
 }

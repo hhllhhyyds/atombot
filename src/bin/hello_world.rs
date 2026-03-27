@@ -2,8 +2,15 @@ use anyhow::Result;
 use atombot::provider::{LLMProvider, Message, OpenAIProvider};
 use std::io::{self, Write};
 
+fn init_env_logger() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+        .format_timestamp_millis()
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_env_logger();
     println!("=== Atombot CLI Demo ===");
     println!("Press Ctrl+C to exit\n");
 
