@@ -1,10 +1,11 @@
 use std::env;
+use std::io::{self, Write};
 
 use async_openai::{
     config::OpenAIConfig,
     types::chat::{
-        ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
-        CreateChatCompletionRequestArgs,
+        ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
     },
     Client,
 };
@@ -27,26 +28,61 @@ async fn main() {
         .unwrap();
     let client = Client::with_config(config).with_http_client(http_client);
 
-    let messages: Vec<async_openai::types::chat::ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestSystemMessageArgs::default()
+    let mut messages: Vec<async_openai::types::chat::ChatCompletionRequestMessage> =
+        vec![ChatCompletionRequestSystemMessageArgs::default()
             .content("你是个诚实的 AI")
             .build()
             .unwrap()
-            .into(),
-        ChatCompletionRequestUserMessageArgs::default()
-            .content("你是哪个大模型？告诉我 sin 23 度是多少")
+            .into()];
+
+    println!("开始对话，输入你的问题 (输入 quit 退出):\n");
+
+    loop {
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        let input = input.trim();
+
+        if input.is_empty() {
+            continue;
+        }
+
+        if input == "quit" || input == "exit" {
+            println!("再见!");
+            break;
+        }
+
+        messages.push(
+            ChatCompletionRequestUserMessageArgs::default()
+                .content(input)
+                .build()
+                .unwrap()
+                .into(),
+        );
+
+        let request = CreateChatCompletionRequestArgs::default()
+            .model(&model)
+            .messages(messages.clone())
             .build()
-            .unwrap()
-            .into(),
-    ];
+            .unwrap();
 
-    let request = CreateChatCompletionRequestArgs::default()
-        .model(model)
-        .messages(messages)
-        .build()
-        .unwrap();
+        let response = client.chat().create(request).await.unwrap();
 
-    let response = client.chat().create(request).await.unwrap();
+        if let Some(choice) = response.choices.first() {
+            if let Some(content) = &choice.message.content {
+                println!("\nAI: {}\n", content);
 
-    println!("{:?}", response);
+                // 将 AI 的回复添加到消息历史中
+                messages.push(
+                    ChatCompletionRequestAssistantMessageArgs::default()
+                        .content(content.clone())
+                        .build()
+                        .unwrap()
+                        .into(),
+                );
+            }
+        }
+    }
 }
