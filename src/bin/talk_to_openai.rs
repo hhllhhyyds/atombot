@@ -1,65 +1,21 @@
 use std::env;
 
 use std::io::{self, Write};
-use std::path::Path;
 
 use async_openai::{
     config::OpenAIConfig,
     types::chat::{
         ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessageArgs,
         ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
-        ChatCompletionRequestUserMessageArgs, ChatCompletionTool, ChatCompletionTools,
-        CreateChatCompletionRequestArgs, FunctionObject,
+        ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
     },
     Client,
 };
 
+use atombot::agent::tools::{AllowedDirectoriesConfig, ReadFileTool, Tool};
 use atombot::log;
 
 const MAX_ITERATIONS: usize = 10;
-
-fn build_read_file_tool() -> ChatCompletionTools {
-    ChatCompletionTools::Function(ChatCompletionTool {
-        function: FunctionObject {
-            name: "read_file".into(),
-            description: Some("Read the contents of a file".into()),
-            parameters: Some(serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "The file path to read"
-                    }
-                },
-                "required": ["path"]
-            })),
-            strict: None,
-        },
-    })
-}
-
-async fn execute_read_file(path: &str) -> String {
-    let path = Path::new(path);
-    if !path.exists() {
-        return format!("Error: File not found: {}", path.display());
-    }
-    if !path.is_file() {
-        return format!("Error: Not a file: {}", path.display());
-    }
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            if content.len() > 5000 {
-                format!(
-                    "{}...\n\n(truncated, showing first 5000 chars)",
-                    &content[..5000]
-                )
-            } else {
-                content
-            }
-        }
-        Err(e) => format!("Error reading file: {}", e),
-    }
-}
 
 #[tokio::main]
 async fn main() {
@@ -78,7 +34,10 @@ async fn main() {
         .unwrap();
     let client = Client::with_config(config).with_http_client(http_client);
 
-    let tools = vec![build_read_file_tool()];
+    let read_file_tool = ReadFileTool::new(
+        AllowedDirectoriesConfig::default().with_workspace("/Users/hhl/Documents/projects/atombot"),
+    );
+    let tools = vec![read_file_tool.build_chat_completion_tools()];
 
     let system_prompt = "你是一个有用的助手。当用户要求读取文件时，请使用 read_file 工具。";
 
@@ -151,16 +110,18 @@ async fn main() {
                                 let args = &tc.function.arguments;
                                 let args_json: serde_json::Value =
                                     serde_json::from_str(args).unwrap_or_default();
-                                let path =
-                                    args_json.get("path").and_then(|v| v.as_str()).unwrap_or("");
 
-                                println!("  - {}(path='{}')", name, path);
-
-                                let result = execute_read_file(path).await;
+                                let result = if name == "read_file" {
+                                    read_file_tool
+                                        .execute(args_json)
+                                        .await
+                                        .unwrap_or_else(|e| format!("工具执行失败: {}", e))
+                                } else {
+                                    format!("未知工具: {}", name)
+                                };
 
                                 // Log tool execution
-                                let tool_exec_log =
-                                    format!("Tool: {}\nPath: {}\nResult: {}", name, path, result);
+                                let tool_exec_log = format!("Tool: {}\nResult: {}", name, result);
                                 log!("TOOL EXEC", &tool_exec_log);
 
                                 // 添加工具结果消息
@@ -185,7 +146,7 @@ async fn main() {
                             }
                         }
                     }
-                    continue; // 继续循环获取下一个响应
+                    continue;
                 }
 
                 // 普通文本回复
