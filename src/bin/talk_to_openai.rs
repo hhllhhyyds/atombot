@@ -1,6 +1,6 @@
 use std::env;
-use std::fs::{File, OpenOptions};
-use std::io::{self, BufWriter, Write};
+
+use std::io::{self, Write};
 use std::path::Path;
 
 use async_openai::{
@@ -14,36 +14,9 @@ use async_openai::{
     Client,
 };
 
+use atombot::log;
+
 const MAX_ITERATIONS: usize = 10;
-const LOG_FILE: &str = "talk_to_openai.log";
-
-fn init_log() -> BufWriter<File> {
-    let log_path = Path::new(LOG_FILE);
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .expect("Failed to open log file");
-    BufWriter::new(file)
-}
-
-fn log_write(log: &mut BufWriter<File>, prefix: &str, content: &str) {
-    let timestamp = chrono_lite_timestamp();
-    writeln!(log, "\n=== {} [{}] ===", prefix, timestamp).ok();
-    writeln!(log, "{}", content).ok();
-    writeln!(log, "=== END {} ===", prefix).ok();
-    log.flush().ok();
-}
-
-fn chrono_lite_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs();
-    let millis = dur.subsec_millis();
-    format!("{}.{:03}", secs, millis)
-}
 
 fn build_read_file_tool() -> ChatCompletionTools {
     ChatCompletionTools::Function(ChatCompletionTool {
@@ -116,9 +89,7 @@ async fn main() {
             .unwrap()
             .into()];
 
-    // Log system prompt
-    let mut log_file = init_log();
-    log_write(&mut log_file, "SYSTEM PROMPT", system_prompt);
+    log!("SYSTEM PROMPT", system_prompt);
 
     println!("开始对话，输入你的问题 (输入 quit 退出):\n");
 
@@ -158,13 +129,13 @@ async fn main() {
 
             // Log request
             let request_json = serde_json::to_string_pretty(&request).unwrap_or_default();
-            log_write(&mut log_file, "REQUEST", &request_json);
+            log!("REQUEST", &request_json);
 
             let response = client.chat().create(request).await.unwrap();
 
             // Log response
             let response_json = serde_json::to_string_pretty(&response).unwrap_or_default();
-            log_write(&mut log_file, "RESPONSE", &response_json);
+            log!("RESPONSE", &response_json);
 
             if let Some(choice) = response.choices.first() {
                 let msg = &choice.message;
@@ -190,7 +161,7 @@ async fn main() {
                                 // Log tool execution
                                 let tool_exec_log =
                                     format!("Tool: {}\nPath: {}\nResult: {}", name, path, result);
-                                log_write(&mut log_file, "TOOL EXEC", &tool_exec_log);
+                                log!("TOOL EXEC", &tool_exec_log);
 
                                 // 添加工具结果消息
                                 messages.push(
