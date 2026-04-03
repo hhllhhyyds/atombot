@@ -2,53 +2,222 @@ use std::env;
 
 use std::io::{self, Write};
 
+use async_openai::types::chat::{ChatCompletionRequestMessage, ChatCompletionTools};
 use async_openai::{
     config::OpenAIConfig,
     types::chat::{
         ChatCompletionMessageToolCalls, ChatCompletionRequestAssistantMessageArgs,
         ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
         ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
+        CreateChatCompletionResponse,
     },
     Client,
 };
 
-use atombot::agent::tools::{AllowedDirectoriesConfig, ReadFileTool, Tool};
+use atombot::agent::tools::{AllowedDirectoriesConfig, ReadFileTool, ToolRegistry};
 use atombot::log;
 
-const MAX_ITERATIONS: usize = 10;
+#[derive(Debug, thiserror::Error)]
+pub enum AgentError {
+    #[error("API error: {0}")]
+    Api(String),
+    #[error("Tool error: {0}")]
+    Tool(String),
+    #[error("Max iterations exceeded")]
+    MaxIterations,
+}
+
+pub struct ApiClient {
+    client: Client<OpenAIConfig>,
+    model: String,
+}
+
+impl ApiClient {
+    pub fn new() -> Self {
+        let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
+        let api_base = env::var("OPENAI_API_BASE")
+            .unwrap_or_else(|_| "https://api.minimax.chat/v1".to_string());
+        let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "MiniMax-M2.7".to_string());
+
+        let config = OpenAIConfig::new()
+            .with_api_key(api_key)
+            .with_api_base(api_base);
+
+        let http_client = reqwest::ClientBuilder::new()
+            .user_agent("async-openai")
+            .build()
+            .unwrap();
+
+        Self {
+            client: Client::with_config(config).with_http_client(http_client),
+            model,
+        }
+    }
+
+    pub async fn chat(
+        &self,
+        messages: &[ChatCompletionRequestMessage],
+        tools: &[ChatCompletionTools],
+    ) -> Result<CreateChatCompletionResponse, AgentError> {
+        let request = CreateChatCompletionRequestArgs::default()
+            .model(&self.model)
+            .messages(messages.to_vec())
+            .tools(tools.to_vec())
+            .build()
+            .unwrap();
+
+        let request_json = serde_json::to_string_pretty(&request).unwrap_or_default();
+        log!("REQUEST", &request_json);
+
+        self.client
+            .chat()
+            .create(request)
+            .await
+            .map_err(|e| AgentError::Api(e.to_string()))
+            .inspect(|resp| {
+                let response_json = serde_json::to_string_pretty(resp).unwrap_or_default();
+                log!("RESPONSE", &response_json);
+            })
+    }
+}
+
+pub struct Agent {
+    client: ApiClient,
+    tool_registry: ToolRegistry,
+    messages: Vec<ChatCompletionRequestMessage>,
+}
+
+impl Agent {
+    pub fn new(client: ApiClient, tool_registry: ToolRegistry) -> Self {
+        Self {
+            client,
+            tool_registry,
+            messages: Vec::new(),
+        }
+    }
+
+    pub fn with_system_prompt(mut self, prompt: &str) -> Self {
+        self.messages.push(
+            ChatCompletionRequestSystemMessageArgs::default()
+                .content(prompt)
+                .build()
+                .unwrap()
+                .into(),
+        );
+        log!("SYSTEM PROMPT", prompt);
+        self
+    }
+
+    pub async fn run(&mut self, input: &str) -> Result<String, AgentError> {
+        self.messages.push(
+            ChatCompletionRequestUserMessageArgs::default()
+                .content(input)
+                .build()
+                .unwrap()
+                .into(),
+        );
+
+        loop {
+            let tools = self.tool_registry.build_chat_completion_tools();
+            let response = self.client.chat(&self.messages, &tools).await?;
+
+            let choice = response
+                .choices
+                .first()
+                .ok_or_else(|| AgentError::Api("No choice in response".to_string()))?;
+            let msg = &choice.message;
+
+            // Handle tool calls
+            if let Some(tool_calls) = &msg.tool_calls {
+                let tool_calls: &[ChatCompletionMessageToolCalls] = tool_calls;
+                println!("\n[工具调用: {}]", tool_calls.len());
+                self.handle_tool_calls(tool_calls).await?;
+                continue;
+            }
+
+            // Handle text response
+            if let Some(content) = &msg.content {
+                let content: String = content.clone();
+                println!("\nAI: {}\n", content);
+
+                self.messages.push(
+                    ChatCompletionRequestAssistantMessageArgs::default()
+                        .content(content.clone())
+                        .build()
+                        .unwrap()
+                        .into(),
+                );
+                return Ok(content);
+            }
+
+            // Neither tool calls nor content - return error
+            return Err(AgentError::Api("Empty response".to_string()));
+        }
+    }
+
+    async fn handle_tool_calls(
+        &mut self,
+        tool_calls: &[ChatCompletionMessageToolCalls],
+    ) -> Result<(), AgentError> {
+        for tool_call in tool_calls {
+            match tool_call {
+                ChatCompletionMessageToolCalls::Function(tc) => {
+                    let name = &tc.function.name;
+                    let args = &tc.function.arguments;
+                    let args_json: serde_json::Value =
+                        serde_json::from_str(args).unwrap_or_default();
+
+                    let result = self.tool_registry.execute(name, args_json).await;
+
+                    let (result_str, log_msg) = match &result {
+                        Ok(r) => (r.clone(), format!("Tool: {}\nResult: {}", name, r)),
+                        Err(e) => (
+                            format!("工具执行失败: {}", e),
+                            format!("Tool: {}\nError: {}", name, e),
+                        ),
+                    };
+
+                    log!("TOOL EXEC", &log_msg);
+
+                    self.messages.push(
+                        ChatCompletionRequestAssistantMessageArgs::default()
+                            .tool_calls(tool_calls.to_vec())
+                            .build()
+                            .unwrap()
+                            .into(),
+                    );
+                    self.messages.push(
+                        ChatCompletionRequestToolMessageArgs::default()
+                            .content(result_str)
+                            .tool_call_id(tc.id.clone())
+                            .build()
+                            .unwrap()
+                            .into(),
+                    );
+                }
+                ChatCompletionMessageToolCalls::Custom(ctc) => {
+                    return Err(AgentError::Tool(format!(
+                        "Custom tool calls not supported: {}",
+                        ctc.custom_tool.name
+                    )))
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 #[tokio::main]
 async fn main() {
-    let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
-    let api_base =
-        env::var("OPENAI_API_BASE").unwrap_or_else(|_| "https://api.minimax.chat/v1".to_string());
-    let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "MiniMax-M2.7".to_string());
+    let api_client = ApiClient::new();
 
-    let config = OpenAIConfig::new()
-        .with_api_key(api_key)
-        .with_api_base(api_base);
-
-    let http_client = reqwest::ClientBuilder::new()
-        .user_agent("async-openai")
-        .build()
-        .unwrap();
-    let client = Client::with_config(config).with_http_client(http_client);
-
-    let read_file_tool = ReadFileTool::new(
+    let mut tool_registry = ToolRegistry::new();
+    tool_registry.register(ReadFileTool::new(
         AllowedDirectoriesConfig::default().with_workspace("/Users/hhl/Documents/projects/atombot"),
-    );
-    let tools = vec![read_file_tool.build_chat_completion_tools()];
+    ));
 
-    let system_prompt = "你是一个有用的助手。当用户要求读取文件时，请使用 read_file 工具。";
-
-    let mut messages: Vec<async_openai::types::chat::ChatCompletionRequestMessage> =
-        vec![ChatCompletionRequestSystemMessageArgs::default()
-            .content(system_prompt)
-            .build()
-            .unwrap()
-            .into()];
-
-    log!("SYSTEM PROMPT", system_prompt);
+    let mut agent = Agent::new(api_client, tool_registry)
+        .with_system_prompt("你是一个有用的助手。当用户要求读取文件时，请使用 read_file 工具。");
 
     println!("开始对话，输入你的问题 (输入 quit 退出):\n");
 
@@ -69,100 +238,8 @@ async fn main() {
             break;
         }
 
-        messages.push(
-            ChatCompletionRequestUserMessageArgs::default()
-                .content(input)
-                .build()
-                .unwrap()
-                .into(),
-        );
-
-        // 对话循环，支持工具调用
-        for _iteration in 0..MAX_ITERATIONS {
-            let request = CreateChatCompletionRequestArgs::default()
-                .model(&model)
-                .messages(messages.clone())
-                .tools(tools.clone())
-                .build()
-                .unwrap();
-
-            // Log request
-            let request_json = serde_json::to_string_pretty(&request).unwrap_or_default();
-            log!("REQUEST", &request_json);
-
-            let response = client.chat().create(request).await.unwrap();
-
-            // Log response
-            let response_json = serde_json::to_string_pretty(&response).unwrap_or_default();
-            log!("RESPONSE", &response_json);
-
-            if let Some(choice) = response.choices.first() {
-                let msg = &choice.message;
-
-                // 如果有工具调用
-                if let Some(tool_calls) = &msg.tool_calls {
-                    println!("\n[工具调用: {}]", tool_calls.len());
-
-                    for tool_call in tool_calls {
-                        match tool_call {
-                            ChatCompletionMessageToolCalls::Function(tc) => {
-                                let name = &tc.function.name;
-                                let args = &tc.function.arguments;
-                                let args_json: serde_json::Value =
-                                    serde_json::from_str(args).unwrap_or_default();
-
-                                let result = if name == "read_file" {
-                                    read_file_tool
-                                        .execute(args_json)
-                                        .await
-                                        .unwrap_or_else(|e| format!("工具执行失败: {}", e))
-                                } else {
-                                    format!("未知工具: {}", name)
-                                };
-
-                                // Log tool execution
-                                let tool_exec_log = format!("Tool: {}\nResult: {}", name, result);
-                                log!("TOOL EXEC", &tool_exec_log);
-
-                                // 添加工具结果消息
-                                messages.push(
-                                    ChatCompletionRequestAssistantMessageArgs::default()
-                                        .tool_calls(tool_calls.clone())
-                                        .build()
-                                        .unwrap()
-                                        .into(),
-                                );
-                                messages.push(
-                                    ChatCompletionRequestToolMessageArgs::default()
-                                        .content(result)
-                                        .tool_call_id(tc.id.clone())
-                                        .build()
-                                        .unwrap()
-                                        .into(),
-                                );
-                            }
-                            ChatCompletionMessageToolCalls::Custom(_) => {
-                                println!("  - Custom tool call (not supported)")
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                // 普通文本回复
-                if let Some(content) = &msg.content {
-                    println!("\nAI: {}\n", content);
-
-                    messages.push(
-                        ChatCompletionRequestAssistantMessageArgs::default()
-                            .content(content.clone())
-                            .build()
-                            .unwrap()
-                            .into(),
-                    );
-                    break; // 对话完成
-                }
-            }
+        if let Err(e) = agent.run(input).await {
+            eprintln!("Error: {}", e);
         }
     }
 }

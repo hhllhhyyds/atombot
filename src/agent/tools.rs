@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_openai::types::chat::{ChatCompletionTool, ChatCompletionTools, FunctionObject};
 use async_trait::async_trait;
 
@@ -9,10 +11,12 @@ pub enum ToolError {
     Execution(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Tool not found: {0}")]
+    NotFound(String),
 }
 
 #[async_trait]
-pub trait Tool {
+pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn parameters_schema(&self) -> serde_json::Value;
@@ -29,6 +33,37 @@ pub trait Tool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<String, ToolError>;
+}
+
+#[derive(Default)]
+pub struct ToolRegistry {
+    tools: HashMap<String, Box<dyn Tool>>,
+}
+
+impl ToolRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register<T: Tool + 'static>(&mut self, tool: T) {
+        let name = tool.name().to_string();
+        self.tools.insert(name, Box::new(tool));
+    }
+
+    pub async fn execute(&self, name: &str, args: serde_json::Value) -> Result<String, ToolError> {
+        let tool = self
+            .tools
+            .get(name)
+            .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
+        tool.execute(args).await
+    }
+
+    pub fn build_chat_completion_tools(&self) -> Vec<ChatCompletionTools> {
+        self.tools
+            .values()
+            .map(|t| t.build_chat_completion_tools())
+            .collect()
+    }
 }
 
 mod allowed_dir;
