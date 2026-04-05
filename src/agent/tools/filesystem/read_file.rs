@@ -58,18 +58,12 @@ impl Tool for ReadFileTool {
         })
     }
 
+    // TODO: Use offset and limit to paginate through large files.
     async fn execute(&self, args: serde_json::Value) -> Result<String, ToolError> {
         let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
 
         let path = self.allowed_dirs_config.canonicalize_under_allowed(path)?;
 
-        if !path.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("Path {} not found", path.display()),
-            )
-            .into());
-        }
         if !path.is_file() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
