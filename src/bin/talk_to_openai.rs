@@ -23,8 +23,95 @@ pub enum AgentError {
     Api(String),
     #[error("Tool error: {0}")]
     Tool(String),
-    #[error("Max iterations exceeded")]
+    #[error("Max tool iterations exceeded")]
     MaxIterations,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AgentConfig {
+    pub tool_max_iterations: usize,
+    pub max_messages: usize,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            tool_max_iterations: 10,
+            max_messages: 40,
+        }
+    }
+}
+
+impl AgentConfig {
+    pub fn with_tool_max_iterations(mut self, max: usize) -> Self {
+        self.tool_max_iterations = max;
+        self
+    }
+
+    pub fn with_max_messages(mut self, max: usize) -> Self {
+        self.max_messages = max;
+        self
+    }
+}
+
+/// Message window that keeps recent messages and prunes old ones at legal boundaries.
+///
+/// A "legal" boundary is at a user turn - we never cut in the middle of a
+/// tool call / tool result exchange to avoid orphaned tool results.
+struct MessageWindow;
+
+impl MessageWindow {
+    /// Prune messages to fit within max limit, keeping system message and recent turns.
+    fn prune(messages: &mut Vec<ChatCompletionRequestMessage>, max: usize) {
+        if messages.len() <= max {
+            return;
+        }
+
+        // Always keep system message (index 0)
+        let system_len = if Self::is_system_message(&messages[0]) {
+            1
+        } else {
+            0
+        };
+
+        // If we're already within limit even after removing everything before system, nothing to do
+        if messages.len() <= max {
+            return;
+        }
+
+        // Find the starting point: we want to keep the last (max - system_len) messages
+        // but we must align to a user turn boundary
+        let target_keep = max.saturating_sub(system_len);
+        let prune_start = messages.len() - target_keep;
+
+        // Find the nearest user turn at or before prune_start
+        let mut actual_start = prune_start;
+        for i in (system_len..prune_start).rev() {
+            if Self::is_user_message(&messages[i]) {
+                actual_start = i;
+                break;
+            }
+        }
+
+        // Remove messages from [system_len..actual_start)
+        if actual_start > system_len {
+            messages.drain(system_len..actual_start);
+        }
+    }
+
+    fn is_system_message(msg: &ChatCompletionRequestMessage) -> bool {
+        matches!(
+            msg,
+            ChatCompletionRequestMessage::System(_)
+        )
+    }
+
+    fn is_user_message(msg: &ChatCompletionRequestMessage) -> bool {
+        matches!(
+            msg,
+            ChatCompletionRequestMessage::User(_)
+        )
+    }
 }
 
 pub struct ApiClient {
@@ -84,14 +171,16 @@ impl ApiClient {
 pub struct Agent {
     client: ApiClient,
     tool_registry: ToolRegistry,
+    config: AgentConfig,
     messages: Vec<ChatCompletionRequestMessage>,
 }
 
 impl Agent {
-    pub fn new(client: ApiClient, tool_registry: ToolRegistry) -> Self {
+    pub fn new(client: ApiClient, tool_registry: ToolRegistry, config: AgentConfig) -> Self {
         Self {
             client,
             tool_registry,
+            config,
             messages: Vec::new(),
         }
     }
@@ -117,7 +206,10 @@ impl Agent {
                 .into(),
         );
 
-        loop {
+        for _ in 0..self.config.tool_max_iterations {
+            // Prune old messages to prevent prompt size from growing indefinitely
+            MessageWindow::prune(&mut self.messages, self.config.max_messages);
+
             let tools = self.tool_registry.build_chat_completion_tools();
             let response = self.client.chat(&self.messages, &tools).await?;
 
@@ -153,6 +245,8 @@ impl Agent {
             // Neither tool calls nor content - return error
             return Err(AgentError::Api("Empty response".to_string()));
         }
+
+        Err(AgentError::MaxIterations)
     }
 
     async fn handle_tool_calls(
@@ -216,7 +310,7 @@ async fn main() {
         AllowedDirectoriesConfig::default().with_workspace("/Users/hhl/Documents/projects/atombot"),
     ));
 
-    let mut agent = Agent::new(api_client, tool_registry)
+    let mut agent = Agent::new(api_client, tool_registry, AgentConfig::default())
         .with_system_prompt("你是一个有用的助手。当用户要求读取文件时，请使用 read_file 工具。");
 
     println!("开始对话，输入你的问题 (输入 quit 退出):\n");
