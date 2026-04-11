@@ -101,7 +101,7 @@ impl Agent {
                     ChatCompletionRequestMessage::User(m) => {
                         let snippet = match &m.content {
                             async_openai::types::chat::ChatCompletionRequestUserMessageContent::Text(t) =>
-                                if t.len() > 80 { format!("{}...", &t[..80]) } else { t.clone() },
+                                if t.chars().count() > 80 { format!("{}...", t.chars().take(80).collect::<String>()) } else { t.clone() },
                             async_openai::types::chat::ChatCompletionRequestUserMessageContent::Array(_) =>
                                 "[array content]".to_string(),
                         };
@@ -117,7 +117,7 @@ impl Agent {
                         } else {
                             let snippet = match &m.content {
                                 Some(async_openai::types::chat::ChatCompletionRequestAssistantMessageContent::Text(t)) =>
-                                    if t.len() > 80 { format!("{}...", &t[..80]) } else { t.clone() },
+                                    if t.chars().count() > 80 { format!("{}...", t.chars().take(80).collect::<String>()) } else { t.clone() },
                                 _ => "(no content)".to_string(),
                             };
                             eprintln!("  [{:2}] ASSISTANT: {}", i, snippet);
@@ -126,7 +126,7 @@ impl Agent {
                     ChatCompletionRequestMessage::Tool(m) => {
                         let snippet = match &m.content {
                             async_openai::types::chat::ChatCompletionRequestToolMessageContent::Text(t) =>
-                                if t.len() > 100 { format!("{}...", &t[..100]) } else { t.clone() },
+                                if t.chars().count() > 100 { format!("{}...", t.chars().take(100).collect::<String>()) } else { t.clone() },
                             async_openai::types::chat::ChatCompletionRequestToolMessageContent::Array(_) =>
                                 "[array content]".to_string(),
                         };
@@ -135,7 +135,7 @@ impl Agent {
                     ChatCompletionRequestMessage::System(m) => {
                         let snippet = match &m.content {
                             async_openai::types::chat::ChatCompletionRequestSystemMessageContent::Text(t) =>
-                                if t.len() > 80 { format!("{}...", &t[..80]) } else { t.clone() },
+                                if t.chars().count() > 80 { format!("{}...", t.chars().take(80).collect::<String>()) } else { t.clone() },
                             async_openai::types::chat::ChatCompletionRequestSystemMessageContent::Array(_) =>
                                 "[array content]".to_string(),
                         };

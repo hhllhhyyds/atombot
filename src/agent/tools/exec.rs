@@ -162,13 +162,16 @@ impl Tool for ExecTool {
                 let result = output_parts.join("\n");
 
                 // Truncate very large outputs to avoid flooding the context window
-                if result.len() > self.max_output_chars {
+                if result.chars().count() > self.max_output_chars {
                     let half = self.max_output_chars / 2;
+                    let first_half: String = result.chars().take(half).collect();
+                    let second_half: String = result.chars().rev().take(half).collect::<String>().chars().rev().collect();
+                    let truncated_chars = result.chars().count() - self.max_output_chars;
                     return Ok(format!(
                         "{}\n\n... ({} chars truncated) ...\n\n{}",
-                        &result[..half],
-                        result.len() - self.max_output_chars,
-                        &result[result.len() - half..]
+                        first_half,
+                        truncated_chars,
+                        second_half
                     ));
                 }
 

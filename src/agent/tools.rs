@@ -90,8 +90,14 @@ impl ToolRegistry {
         registry.register(EditFileTool::new(config.clone()));
         registry.register(ListDirTool::new(config));
         registry.register(ExecTool::new(60, Some(workspace.to_string()), true));
-        registry.register(WebSearchTool::new(WebSearchConfig::from_env(), std::env::var("WEB_SEARCH_PROXY").ok()));
-        registry.register(WebFetchTool::new(50_000, std::env::var("WEB_SEARCH_PROXY").ok()));
+        registry.register(WebSearchTool::new(
+            WebSearchConfig::from_env(),
+            std::env::var("WEB_SEARCH_PROXY").ok(),
+        ));
+        registry.register(WebFetchTool::new(
+            50_000,
+            std::env::var("WEB_SEARCH_PROXY").ok(),
+        ));
         registry
     }
 
