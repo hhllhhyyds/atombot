@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
@@ -299,7 +300,7 @@ fn create_app_state() -> AppState {
 
     let mut tool_registry = ToolRegistry::new();
     tool_registry.register(ReadFileTool::new(
-        AllowedDirectoriesConfig::default().with_workspace("/Users/hhl/Documents/projects/atombot"),
+        AllowedDirectoriesConfig::default().with_workspace(env!("CARGO_MANIFEST_DIR")),
     ));
 
     let agent = Agent::new(api_client, tool_registry, AgentConfig::default())
@@ -312,6 +313,13 @@ fn create_app_state() -> AppState {
 
 #[tokio::main]
 async fn main() {
+    // Load .env from workspace root
+    let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.env");
+    if env_path.exists() {
+        dotenvy::from_path(&env_path).ok();
+        println!("[DEBUG] Loaded .env from: {:?}", env_path);
+    }
+
     let app = create_app_state();
 
     let cors = CorsLayer::new()

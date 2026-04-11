@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 use atombot::agent::api_client::ApiClient;
 use atombot::agent::config::AgentConfig;
@@ -7,9 +8,16 @@ use atombot::agent::Agent;
 
 #[tokio::main]
 async fn main() {
+    // Load .env from workspace root
+    let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env");
+    if env_path.exists() {
+        dotenvy::from_path(&env_path).ok();
+        println!("[DEBUG] Loaded .env from: {:?}", env_path);
+    }
+
     let mut tool_registry = ToolRegistry::new();
     tool_registry.register(ReadFileTool::new(
-        AllowedDirectoriesConfig::default().with_workspace("/Users/hhl/Documents/projects/atombot"),
+        AllowedDirectoriesConfig::default().with_workspace(env!("CARGO_MANIFEST_DIR")),
     ));
 
     let mut agent = Agent::new(ApiClient::new(), tool_registry, AgentConfig::default())
