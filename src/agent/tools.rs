@@ -59,6 +59,8 @@ impl ToolRegistry {
         registry.register(EditFileTool::new(config.clone()));
         registry.register(ListDirTool::new(config));
         registry.register(ExecTool::new(60, Some(workspace.to_string()), true));
+        registry.register(WebSearchTool::new(WebSearchConfig::from_env(), std::env::var("WEB_SEARCH_PROXY").ok()));
+        registry.register(WebFetchTool::new(50_000, std::env::var("WEB_SEARCH_PROXY").ok()));
         registry
     }
 
@@ -81,6 +83,8 @@ impl ToolRegistry {
 mod allowed_dir;
 mod exec;
 mod filesystem;
+mod web_fetch;
+mod web_search;
 
 pub use allowed_dir::AllowedDirectoriesConfig;
 
@@ -89,3 +93,5 @@ pub use filesystem::edit_file::EditFileTool;
 pub use filesystem::list_dir::ListDirTool;
 pub use filesystem::read_file::ReadFileTool;
 pub use filesystem::write_file::WriteFileTool;
+pub use web_fetch::WebFetchTool;
+pub use web_search::{WebSearchConfig, WebSearchTool};

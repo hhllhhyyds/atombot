@@ -59,8 +59,58 @@ impl Agent {
                 .into(),
         );
 
-        for _ in 0..self.config.tool_max_iterations {
+        for iteration in 0..self.config.tool_max_iterations {
             MessageWindow::prune(&mut self.messages, self.config.max_messages);
+
+            eprintln!("\n========== [迭代 {}] 消息历史 ({}条) ==========", iteration + 1, self.messages.len());
+            for (i, msg) in self.messages.iter().enumerate() {
+                match msg {
+                    ChatCompletionRequestMessage::User(m) => {
+                        let snippet = match &m.content {
+                            async_openai::types::chat::ChatCompletionRequestUserMessageContent::Text(t) =>
+                                if t.len() > 80 { format!("{}...", &t[..80]) } else { t.clone() },
+                            async_openai::types::chat::ChatCompletionRequestUserMessageContent::Array(_) =>
+                                "[array content]".to_string(),
+                        };
+                        eprintln!("  [{:2}] USER: {}", i, snippet);
+                    }
+                    ChatCompletionRequestMessage::Assistant(m) => {
+                        if let Some(tc) = &m.tool_calls {
+                            let names: Vec<_> = tc.iter().map(|t| match t {
+                                ChatCompletionMessageToolCalls::Function(f) => f.function.name.clone(),
+                                ChatCompletionMessageToolCalls::Custom(c) => c.custom_tool.name.clone(),
+                            }).collect();
+                            eprintln!("  [{:2}] ASSISTANT: tool_calls={}", i, names.join(", "));
+                        } else {
+                            let snippet = match &m.content {
+                                Some(async_openai::types::chat::ChatCompletionRequestAssistantMessageContent::Text(t)) =>
+                                    if t.len() > 80 { format!("{}...", &t[..80]) } else { t.clone() },
+                                _ => "(no content)".to_string(),
+                            };
+                            eprintln!("  [{:2}] ASSISTANT: {}", i, snippet);
+                        }
+                    }
+                    ChatCompletionRequestMessage::Tool(m) => {
+                        let snippet = match &m.content {
+                            async_openai::types::chat::ChatCompletionRequestToolMessageContent::Text(t) =>
+                                if t.len() > 100 { format!("{}...", &t[..100]) } else { t.clone() },
+                            async_openai::types::chat::ChatCompletionRequestToolMessageContent::Array(_) =>
+                                "[array content]".to_string(),
+                        };
+                        eprintln!("  [{:2}] TOOL({}): {}", i, m.tool_call_id, snippet.replace('\n', " "));
+                    }
+                    ChatCompletionRequestMessage::System(m) => {
+                        let snippet = match &m.content {
+                            async_openai::types::chat::ChatCompletionRequestSystemMessageContent::Text(t) =>
+                                if t.len() > 80 { format!("{}...", &t[..80]) } else { t.clone() },
+                            async_openai::types::chat::ChatCompletionRequestSystemMessageContent::Array(_) =>
+                                "[array content]".to_string(),
+                        };
+                        eprintln!("  [{:2}] SYSTEM: {}", i, snippet);
+                    }
+                    _ => eprintln!("  [{:2}] OTHER", i),
+                }
+            }
 
             let tools = self.tool_registry.build_chat_completion_tools();
             let response = self.client.chat(&self.messages, &tools).await?;
@@ -70,6 +120,14 @@ impl Agent {
                 .first()
                 .ok_or_else(|| AgentError::Api("No choice in response".to_string()))?;
             let msg = &choice.message;
+
+            // Log model's raw response
+            let resp_content = msg.content.as_ref().map(|c| c.as_str()).unwrap_or("(none)").chars().take(200).collect::<String>();
+            let resp_tools: Vec<String> = msg.tool_calls.as_ref().map(|tc| tc.iter().map(|t| match t {
+                ChatCompletionMessageToolCalls::Function(f) => format!("{}(...)", f.function.name),
+                ChatCompletionMessageToolCalls::Custom(c) => c.custom_tool.name.clone(),
+            }).collect()).unwrap_or_default();
+            eprintln!("\n>>> 模型响应: content=\"{}\" tool_calls={:?}", resp_content, resp_tools);
 
             // Handle tool calls
             if let Some(tool_calls) = &msg.tool_calls {
@@ -135,10 +193,12 @@ impl Agent {
                     };
 
                     log!("TOOL EXEC", &log_msg);
+                    eprintln!("[DEBUG] handle_tool_calls: 添加 assistant(tool_call={}) + tool_result(tool_call_id={})", tc.id, tc.id);
 
+                    // Push assistant message with ONLY this single tool call
                     self.messages.push(
                         ChatCompletionRequestAssistantMessageArgs::default()
-                            .tool_calls(tool_calls.to_vec())
+                            .tool_calls(vec![tool_call.clone()])
                             .build()
                             .unwrap()
                             .into(),
@@ -160,6 +220,7 @@ impl Agent {
                 }
             }
         }
+        eprintln!("[DEBUG] handle_tool_calls 完成, 当前消息数: {}", self.messages.len());
         Ok(())
     }
 }

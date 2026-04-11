@@ -23,11 +23,15 @@ Think of it as **your personal AI coding assistant** — read files, explore cod
 
 ```
 atombot/
-├── src/              # Core atombot library
-├── examples/         # CLI example
-├── web_ui/          # Web browser UI (Axum-based)
-├── tauri_ui/        # Desktop UI (Tauri 2.0)
-└── Cargo.toml       # Workspace manifest
+├── src/
+│   ├── agent/           # Core agent implementation
+│   │   └── tools/       # Built-in tools
+│   │       └── filesystem/  # File system tools
+│   └── security/        # Security utilities (network sandboxing)
+├── examples/           # CLI examples
+├── web_ui/             # Web browser UI (Axum-based)
+├── tauri_ui/           # Desktop UI (Tauri 2.0)
+└── Cargo.toml          # Workspace manifest
 ```
 
 ## Three Ways to Run
@@ -66,6 +70,16 @@ cargo run --example talk_to_openai
 
 ### Built-in Tools
 - 📁 **File Reader** — Read files with path sandboxing and pagination support
+- 📝 **Write File** — Create or overwrite files with path validation
+- ✏️ **Edit File** — Apply targeted edits to existing files
+- 📂 **List Dir** — List directory contents with pagination
+- 💻 **Exec** — Execute shell commands with timeout and output capture
+- 🌐 **Web Fetch** — Fetch web content from URLs
+- 🔍 **Web Search** — Search the web for information
+
+### Security
+- **Network Sandboxing** — Restricts outbound connections to allowed domains
+- **Path Sandboxing** — All file operations constrained to allowed directories
 
 ## Configuration
 
@@ -125,7 +139,9 @@ registry.register(MyCustomTool::new());
 This is just the beginning. The roadmap toward **OpenClaw**:
 
 - [ ] **Memory System** — Persistent conversation history with summarization
-- [ ] **More Tools** — Shell execution, web search, git operations
+- [x] **Shell Execution** — Exec tool with timeout and output capture
+- [x] **Web Tools** — Web search and web fetch
+- [x] **Security Layer** — Network and path sandboxing
 - [ ] **Streaming** — Real-time token streaming in Web UI
 - [ ] **Multi-agent** — Agent coordination and delegation
 - [ ] **Plugin System** — Dynamic tool loading at runtime

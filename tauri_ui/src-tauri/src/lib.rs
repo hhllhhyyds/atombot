@@ -107,6 +107,7 @@ pub fn create_app_state() -> AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load .env BEFORE creating app state (so env vars are available during init)
     if let Some(env_path) = find_env_file() {
         eprintln!("[DEBUG] Loading .env from: {:?}", env_path);
         dotenvy::from_path(&env_path).ok();
