@@ -11,7 +11,7 @@ use tauri::State;
 
 fn find_env_file() -> Option<PathBuf> {
     let binding = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = binding.parent()?.parent()?.parent()?;
+    let workspace_root = binding.parent()?.parent()?;
     let env_path = workspace_root.join(".env");
     if env_path.exists() {
         Some(env_path)
