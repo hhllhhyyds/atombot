@@ -3,7 +3,8 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::agent::tools::{allowed_dir::AllowedDirectoriesConfig, Tool, ToolError};
+use crate::agent::tools::{Tool, ToolError};
+use crate::security::allowed_dir::AllowedDirectoriesConfig;
 
 /// Tool for editing files via targeted text replacement.
 pub struct EditFileTool {

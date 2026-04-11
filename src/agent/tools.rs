@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use async_openai::types::chat::{ChatCompletionTool, ChatCompletionTools, FunctionObject};
 use async_trait::async_trait;
 
+use crate::security::allowed_dir::AllowedDirectoriesConfig;
+
 /// Errors that can occur during tool execution.
 #[derive(thiserror::Error, Debug)]
 pub enum ToolError {
@@ -114,13 +116,10 @@ impl ToolRegistry {
     }
 }
 
-mod allowed_dir;
 mod exec;
 mod filesystem;
 mod web_fetch;
 mod web_search;
-
-pub use allowed_dir::AllowedDirectoriesConfig;
 
 pub use exec::ExecTool;
 pub use filesystem::edit_file::EditFileTool;

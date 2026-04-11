@@ -2,7 +2,8 @@
 
 use async_trait::async_trait;
 
-use crate::agent::tools::{allowed_dir::AllowedDirectoriesConfig, Tool, ToolError};
+use crate::agent::tools::{Tool, ToolError};
+use crate::security::allowed_dir::AllowedDirectoriesConfig;
 
 /// Tool for reading file contents with line numbering and pagination.
 pub struct ReadFileTool {
