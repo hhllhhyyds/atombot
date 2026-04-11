@@ -74,7 +74,18 @@ impl Agent {
             // Handle tool calls
             if let Some(tool_calls) = &msg.tool_calls {
                 let tool_calls: &[ChatCompletionMessageToolCalls] = tool_calls;
-                println!("\n[工具调用: {}]", tool_calls.len());
+                println!(
+                    "\n[工具调用: {}, {}]",
+                    tool_calls.len(),
+                    tool_calls
+                        .iter()
+                        .map(|tc| match tc {
+                            ChatCompletionMessageToolCalls::Function(f) => f.function.name.clone(),
+                            ChatCompletionMessageToolCalls::Custom(c) => c.custom_tool.name.clone(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
                 self.handle_tool_calls(tool_calls).await?;
                 continue;
             }

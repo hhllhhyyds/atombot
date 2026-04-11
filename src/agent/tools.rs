@@ -53,9 +53,11 @@ impl ToolRegistry {
     /// Create a registry with all default tools registered.
     pub fn with_defaults(workspace: &str) -> Self {
         let mut registry = Self::new();
-        registry.register(ReadFileTool::new(
-            AllowedDirectoriesConfig::default().with_workspace(workspace),
-        ));
+        let config = AllowedDirectoriesConfig::default().with_workspace(workspace);
+        registry.register(ReadFileTool::new(config.clone()));
+        registry.register(WriteFileTool::new(config.clone()));
+        registry.register(EditFileTool::new(config.clone()));
+        registry.register(ListDirTool::new(config));
         registry.register(ExecTool::new(60, Some(workspace.to_string()), true));
         registry
     }
@@ -83,4 +85,7 @@ mod filesystem;
 pub use allowed_dir::AllowedDirectoriesConfig;
 
 pub use exec::ExecTool;
+pub use filesystem::edit_file::EditFileTool;
+pub use filesystem::list_dir::ListDirTool;
 pub use filesystem::read_file::ReadFileTool;
+pub use filesystem::write_file::WriteFileTool;

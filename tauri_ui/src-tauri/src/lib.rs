@@ -5,9 +5,9 @@ use atombot::agent::Agent;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
+use tauri::State;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-use tauri::State;
 
 fn find_env_file() -> Option<PathBuf> {
     let binding = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -41,11 +41,14 @@ async fn chat(state: State<'_, AppState>, request: ChatRequest) -> Result<ChatRe
     let mut agent = state.agent.lock().await;
     eprintln!("[DEBUG] Agent locked, calling chat with 60s timeout...");
 
-    let result = timeout(Duration::from_secs(60), agent.chat(&request.prompt)).await;
+    let result = timeout(Duration::from_secs(180), agent.chat(&request.prompt)).await;
 
     match result {
         Ok(Ok(response)) => {
-            eprintln!("[DEBUG] Chat succeeded, response length: {}", response.len());
+            eprintln!(
+                "[DEBUG] Chat succeeded, response length: {}",
+                response.len()
+            );
             Ok(ChatResponse {
                 response,
                 error: None,
@@ -72,20 +75,30 @@ pub fn create_app_state() -> AppState {
     let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "not-set".to_string());
     let api_base = std::env::var("OPENAI_API_BASE").unwrap_or_else(|_| "not-set".to_string());
     let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "not-set".to_string());
-    eprintln!("[DEBUG] ApiClient config: key={}, base={}, model={}", &api_key[..8.min(api_key.len())], api_base, model);
+    eprintln!(
+        "[DEBUG] ApiClient config: key={}, base={}, model={}",
+        &api_key[..8.min(api_key.len())],
+        api_base,
+        model
+    );
 
     let api_client = ApiClient::new();
 
     // Workspace is 3 levels up from src-tauri: src-tauri -> tauri_ui -> atombot
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap().parent().unwrap()
-        .parent().unwrap()
-        .to_string_lossy().to_string();
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
 
     let tool_registry = ToolRegistry::with_defaults(&workspace);
 
     let agent = Agent::new(api_client, tool_registry, AgentConfig::default())
-        .with_system_prompt("你是一个有用的助手。当用户要求读取文件时，请使用 read_file 工具。");
+        .with_system_prompt("你是一个有用的助手。");
 
     AppState {
         agent: Mutex::new(agent),

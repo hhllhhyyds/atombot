@@ -300,7 +300,7 @@ fn create_app_state() -> AppState {
     let tool_registry = ToolRegistry::with_defaults(env!("CARGO_MANIFEST_DIR"));
 
     let agent = Agent::new(api_client, tool_registry, AgentConfig::default())
-        .with_system_prompt("你是一个有用的助手。当用户要求读取文件时，请使用 read_file 工具。");
+        .with_system_prompt("你是一个有用的助手。");
 
     AppState {
         agent: Arc::new(Mutex::new(agent)),

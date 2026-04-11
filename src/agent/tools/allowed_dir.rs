@@ -58,35 +58,78 @@ impl AllowedDirectoriesConfig {
         self
     }
 
-    /// Canonicalizes and validates that `path` falls under an allowed directory.
-    ///
-    /// # Errors
-    ///
-    /// Returns `PermissionDenied` if the path is not under any allowed directory。
-    /// Returns standard `Io::Error` if the path cannot be canonicalized.
-    pub fn canonicalize_under_allowed(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
-        let path = path.as_ref().canonicalize()?;
-
+    /// Checks if a canonicalized path is under any allowed directory.
+    fn is_allowed(&self, path: &Path) -> bool {
         if let Some(workspace) = &self.workspace {
-            if is_under(&path, workspace) {
-                return Ok(path);
+            if is_under(path, workspace) {
+                return true;
             }
         }
         if let Some(allowed_dir) = &self.allowed_dir {
-            if is_under(&path, allowed_dir) {
-                return Ok(path);
+            if is_under(path, allowed_dir) {
+                return true;
             }
         }
         if let Some(extra_dirs) = &self.extra_allowed_dirs {
             for extra in extra_dirs {
-                if is_under(&path, extra) {
-                    return Ok(path);
+                if is_under(path, extra) {
+                    return true;
                 }
             }
         }
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Path is not under any allowed directory",
-        ))
+        false
+    }
+
+    /// Canonicalizes and validates that `path` falls under an allowed directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PermissionDenied` if the path is not under any allowed directory.
+    /// Returns standard `Io::Error` if the path cannot be canonicalized.
+    pub fn canonicalize_under_allowed(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
+        let path = path.as_ref().canonicalize()?;
+        if self.is_allowed(&path) {
+            Ok(path)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Path is not under any allowed directory",
+            ))
+        }
+    }
+
+    /// Resolves a path for write operations (file may not exist yet).
+    ///
+    /// For existing paths, works like `canonicalize_under_allowed`.
+    /// For non-existing paths, resolves the parent directory and checks it's allowed.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PermissionDenied` if the path is not under any allowed directory.
+    pub fn resolve_for_write(&self, path: impl AsRef<Path>) -> io::Result<PathBuf> {
+        let path = path.as_ref();
+
+        // Try to canonicalize directly first (works if path exists)
+        if let Ok(canonical) = path.canonicalize() {
+            if self.is_allowed(&canonical) {
+                return Ok(canonical);
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Path is not under any allowed directory",
+            ));
+        }
+
+        // Path doesn't exist - check parent directory
+        let parent = path.parent().unwrap_or(path);
+        let parent = parent.canonicalize()?;
+        if self.is_allowed(&parent) {
+            Ok(parent.join(path.file_name().unwrap_or_default()))
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Path is not under any allowed directory",
+            ))
+        }
     }
 }
