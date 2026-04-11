@@ -14,7 +14,7 @@ use tower_http::cors::{Any, CorsLayer};
 use atombot::agent::api_client::ApiClient;
 use atombot::agent::config::AgentConfig;
 use atombot::agent::{
-    tools::{AllowedDirectoriesConfig, ReadFileTool, ToolRegistry},
+    tools::ToolRegistry,
     Agent,
 };
 
@@ -297,11 +297,7 @@ async fn chat_handler(
 
 fn create_app_state() -> AppState {
     let api_client = ApiClient::new();
-
-    let mut tool_registry = ToolRegistry::new();
-    tool_registry.register(ReadFileTool::new(
-        AllowedDirectoriesConfig::default().with_workspace(env!("CARGO_MANIFEST_DIR")),
-    ));
+    let tool_registry = ToolRegistry::with_defaults(env!("CARGO_MANIFEST_DIR"));
 
     let agent = Agent::new(api_client, tool_registry, AgentConfig::default())
         .with_system_prompt("你是一个有用的助手。当用户要求读取文件时，请使用 read_file 工具。");

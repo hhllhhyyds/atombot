@@ -11,8 +11,6 @@ Atombot is a **pure Rust** AI agent framework that brings intelligent tool-calli
 
 Think of it as **your personal AI coding assistant** — read files, explore codebases, execute tasks — all powered by Large Language Models with the reliability and speed Rust is known for.
 
-> ⚡ **Fun fact**: The name "Atombot" reflects our philosophy — small, modular, and with tremendous potential. Just like atoms combining to form everything, we believe this framework can grow into something extraordinary.
-
 ## Why Rust?
 
 - **Blazing fast** — No GC pauses, no startup delay, instant response
@@ -20,6 +18,43 @@ Think of it as **your personal AI coding assistant** — read files, explore cod
 - **Cross-platform** — Runs everywhere Rust runs
 - **First-class async** — Built on Tokio for maximum performance
 - **Zero dependencies at runtime** — Statically compiled binary
+
+## Project Structure
+
+```
+atombot/
+├── src/              # Core atombot library
+├── examples/         # CLI example
+├── web_ui/          # Web browser UI (Axum-based)
+├── tauri_ui/        # Desktop UI (Tauri 2.0)
+└── Cargo.toml       # Workspace manifest
+```
+
+## Three Ways to Run
+
+### 1. Web UI
+
+```bash
+cd web_ui
+echo "OPENAI_API_KEY=your_key" > ../.env
+cargo run
+```
+Then open http://127.0.0.1:8080
+
+### 2. Desktop App (Tauri)
+
+```bash
+cd tauri_ui
+echo "OPENAI_API_KEY=your_key" > ../.env
+./dev.sh   # Starts HTTP server + Tauri dev
+```
+
+### 3. CLI Example
+
+```bash
+echo "OPENAI_API_KEY=your_key" > .env
+cargo run --example talk_to_openai
+```
 
 ## Features
 
@@ -32,11 +67,25 @@ Think of it as **your personal AI coding assistant** — read files, explore cod
 ### Built-in Tools
 - 📁 **File Reader** — Read files with path sandboxing and pagination support
 
-### Two Interfaces
-- **CLI** (`talk_to_openai`) — Terminal-based chat for quick interactions
-- **Web UI** (`web_ui`) — Beautiful browser interface with Markdown rendering
+## Configuration
 
-### Architecture
+Create a `.env` file in the project root:
+
+```bash
+OPENAI_API_KEY=your_api_key_here
+# Optional:
+OPENAI_API_BASE=https://api.minimax.chat/v1
+OPENAI_MODEL=MiniMax-M2.7
+```
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `OPENAI_API_KEY` | **required** | Your API key |
+| `OPENAI_API_BASE` | `https://api.minimax.chat/v1` | API endpoint |
+| `OPENAI_MODEL` | `MiniMax-M2.7` | Model to use |
+
+## Architecture
+
 ```
 ┌─────────────────────────────────────┐
 │              atombot                │
@@ -48,53 +97,13 @@ Think of it as **your personal AI coding assistant** — read files, explore cod
 └─────────────────────────────────────┘
 ```
 
-## Getting Started
-
-### Prerequisites
-
-- Rust 1.75+
-- An OpenAI-compatible API key (or use MiniMax, Groq, etc.)
-
-### Installation
-
-```bash
-git clone https://github.com/yourusername/atombot.git
-cd atombot
-cargo build --release
-```
-
-### Run the Web UI
-
-```bash
-export OPENAI_API_KEY=your_api_key_here
-cargo run --bin web_ui
-```
-
-Then open http://127.0.0.1:8080 in your browser.
-
-### Run the CLI
-
-```bash
-export OPENAI_API_KEY=your_api_key_here
-cargo run --bin talk_to_openai
-```
-
-## Configuration
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `OPENAI_API_KEY` | **required** | Your API key |
-| `OPENAI_API_BASE` | `https://api.minimax.chat/v1` | API endpoint |
-| `OPENAI_MODEL` | `MiniMax-M2.7` | Model to use |
-| `LOG_FILE` | `app.log` | Log output path |
-
 ## Adding Custom Tools
 
 Implement the `Tool` trait to create your own tools:
 
 ```rust
 use async_trait::async_trait;
-use async_openai::types::chat::{ChatCompletionTools, ChatCompletionTool, FunctionObject};
+use async_openai::types::chat::{ChatCompletionTools, FunctionObject};
 
 pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
@@ -139,18 +148,14 @@ The journey from Atombot to OpenClaw will be documented as the project evolves.
 Contributions are welcome! This is a young project with lots of room for improvement.
 
 ```bash
-# Fork, clone, and start coding
+# Clone and start coding
 cargo build
 cargo test
-
-# Run the CLI demo
-OPENAI_API_KEY=xxx cargo run --bin talk_to_openai
 ```
 
 ## Acknowledgments
 
 - Built with [async-openai](https://github.com/et系ason/async-openai) for OpenAI API compatibility
-- Inspired by the architecture of [nanobot](https://github.com/yourusername/nanobot)
 - Powered by [Tokio](https://tokio.rs) for async excellence
 
 ---

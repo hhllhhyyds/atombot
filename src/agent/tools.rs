@@ -50,6 +50,16 @@ impl ToolRegistry {
         self.tools.insert(name, Box::new(tool));
     }
 
+    /// Create a registry with all default tools registered.
+    pub fn with_defaults(workspace: &str) -> Self {
+        let mut registry = Self::new();
+        registry.register(ReadFileTool::new(
+            AllowedDirectoriesConfig::default().with_workspace(workspace),
+        ));
+        registry.register(ExecTool::new(60, Some(workspace.to_string()), true));
+        registry
+    }
+
     pub async fn execute(&self, name: &str, args: serde_json::Value) -> Result<String, ToolError> {
         let tool = self
             .tools
@@ -67,8 +77,10 @@ impl ToolRegistry {
 }
 
 mod allowed_dir;
+mod exec;
 mod filesystem;
 
 pub use allowed_dir::AllowedDirectoriesConfig;
 
+pub use exec::ExecTool;
 pub use filesystem::read_file::ReadFileTool;
