@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Atombot",
+  "version": "0.1.0",
+  "identifier": "com.atombot.app",
+  "build": {
+    "devUrl": "http://localhost:8080",
+    "frontendDist": "../ui",
+    "beforeDevCommand": "cd /Users/hhl/Documents/projects/atombot/bin/tauri_ui/ui && python3 -m http.server 8080",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Atombot",
+        "width": 800,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

@@ -22,12 +22,17 @@ impl ApiClient {
             .unwrap_or_else(|_| "https://api.minimax.chat/v1".to_string());
         let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "MiniMax-M2.7".to_string());
 
+        eprintln!("[ApiClient] api_key prefix: {}", &api_key[..8.min(api_key.len())]);
+        eprintln!("[ApiClient] api_base: {}", api_base);
+        eprintln!("[ApiClient] model: {}", model);
+
         let config = OpenAIConfig::new()
-            .with_api_key(api_key)
-            .with_api_base(api_base);
+            .with_api_key(&api_key)
+            .with_api_base(&api_base);
 
         let http_client = reqwest::ClientBuilder::new()
             .user_agent("async-openai")
+            .timeout(std::time::Duration::from_secs(60))
             .build()
             .unwrap();
 
@@ -51,11 +56,23 @@ impl ApiClient {
 
         let request_json = serde_json::to_string_pretty(&request).unwrap_or_default();
         log!("REQUEST", &request_json);
+        eprintln!("[API] Sending request to {}...", self.model);
 
-        self.client
+        let result = self.client
             .chat()
             .create(request)
-            .await
+            .await;
+
+        match &result {
+            Ok(resp) => {
+                eprintln!("[API] Response received: {} choices", resp.choices.len());
+            }
+            Err(e) => {
+                eprintln!("[API] Error: {}", e);
+            }
+        }
+
+        result
             .map_err(|e| AgentError::Api(e.to_string()))
             .inspect(|resp| {
                 let response_json = serde_json::to_string_pretty(resp).unwrap_or_default();
