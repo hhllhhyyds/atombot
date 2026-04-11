@@ -1,3 +1,8 @@
+//! OpenAI API client wrapper.
+//!
+//! Wraps [`async_openai::Client`] with environment-based configuration
+//! and request/response logging.
+
 use std::env;
 
 use async_openai::types::chat::{ChatCompletionRequestMessage, ChatCompletionTools};
@@ -10,12 +15,22 @@ use async_openai::{
 use crate::agent::AgentError;
 use crate::log;
 
+/// Client for making chat completions API calls.
+///
+/// Configured via environment variables:
+/// - `OPENAI_API_KEY` (required)
+/// - `OPENAI_API_BASE` (default: `https://api.minimax.chat/v1`)
+/// - `OPENAI_MODEL` (default: `MiniMax-M2.7`)
 pub struct ApiClient {
     client: Client<OpenAIConfig>,
     model: String,
 }
 
 impl ApiClient {
+    /// Create a new API client from environment variables.
+    ///
+    /// # Panics
+    /// Panics if `OPENAI_API_KEY` is not set.
     pub fn new() -> Self {
         let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
         let api_base = env::var("OPENAI_API_BASE")
@@ -42,6 +57,9 @@ impl ApiClient {
         }
     }
 
+    /// Send a chat completion request with tools.
+    ///
+    /// Logs both the request and response via the [`log!`] macro.
     pub async fn chat(
         &self,
         messages: &[ChatCompletionRequestMessage],

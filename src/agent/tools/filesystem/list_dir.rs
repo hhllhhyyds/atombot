@@ -1,3 +1,5 @@
+//! List directory tool — explores directory structure with filtering.
+
 use std::collections::HashSet;
 use std::io;
 
@@ -6,7 +8,9 @@ use serde_json::Value;
 
 use crate::agent::tools::{allowed_dir::AllowedDirectoriesConfig, Tool, ToolError};
 
+/// Tool for listing directory contents.
 pub struct ListDirTool {
+    /// Configuration for allowed directory access
     allowed_dirs_config: AllowedDirectoriesConfig,
 }
 
@@ -16,6 +20,7 @@ impl ListDirTool {
     }
 }
 
+/// Directories that are auto-ignored when listing (common build/cache/artifacts).
 const IGNORE_DIRS: [&str; 12] = [
     ".git",
     "node_modules",
@@ -75,6 +80,7 @@ impl Tool for ListDirTool {
             return Err(ToolError::InvalidArgs("path is required".to_string()));
         }
 
+        // Security: validate path is within allowed directories
         let path = self.allowed_dirs_config.canonicalize_under_allowed(path_str)?;
 
         if !path.is_dir() {
@@ -87,6 +93,7 @@ impl Tool for ListDirTool {
         let mut total = 0;
 
         if recursive {
+            // Flatten directory tree into a sorted list
             for entry in walkdir(&path, &ignore_set)? {
                 total += 1;
                 if items.len() < max_entries {
@@ -99,6 +106,7 @@ impl Tool for ListDirTool {
                 }
             }
         } else {
+            // Single-level listing with emoji prefixes
             let mut entries: Vec<_> = std::fs::read_dir(&path)?
                 .filter_map(|e| e.ok())
                 .collect();
@@ -134,6 +142,8 @@ impl Tool for ListDirTool {
     }
 }
 
+/// Walk a directory tree (non-recursive) collecting paths.
+/// Uses an explicit stack instead of recursion for performance and safety.
 fn walkdir(path: &std::path::Path, ignore_set: &HashSet<&str>) -> io::Result<Vec<std::path::PathBuf>> {
     let mut results = Vec::new();
     let mut stack = vec![path.to_path_buf()];

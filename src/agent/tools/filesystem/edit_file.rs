@@ -1,9 +1,13 @@
+//! Edit file tool — targeted text replacement in files.
+
 use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::agent::tools::{allowed_dir::AllowedDirectoriesConfig, Tool, ToolError};
 
+/// Tool for editing files via targeted text replacement.
 pub struct EditFileTool {
+    /// Configuration for allowed directory access
     allowed_dirs_config: AllowedDirectoriesConfig,
 }
 
@@ -61,15 +65,18 @@ impl Tool for EditFileTool {
             return Err(ToolError::InvalidArgs("old_text is required".to_string()));
         }
 
+        // Security: validate path is within allowed directories
         let path = self.allowed_dirs_config.canonicalize_under_allowed(path_str)?;
 
         let raw = std::fs::read(&path)?;
+        // Detect line ending style to preserve it
         let uses_crlf = raw.windows(2).any(|w| w == b"\r\n");
 
+        // Normalize line endings for matching/replacement
         let content = String::from_utf8_lossy(&raw).replace("\r\n", "\n");
         let old_normalized = old_text.replace("\r\n", "\n");
 
-        // Try exact match first
+        // Check that old_text exists exactly once (or allow replace_all)
         let count = content.matches(&old_normalized).count();
         if count == 0 {
             return Err(ToolError::Execution(format!(
@@ -85,6 +92,7 @@ impl Tool for EditFileTool {
             )));
         }
 
+        // Perform replacement, preserving original line endings
         let new_normalized = new_text.replace("\r\n", "\n");
         let new_content = if replace_all {
             content.replace(&old_normalized, &new_normalized)

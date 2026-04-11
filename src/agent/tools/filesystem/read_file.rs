@@ -1,16 +1,22 @@
+//! Read file tool — reads file contents with pagination and image detection.
+
 use async_trait::async_trait;
 
 use crate::agent::tools::{allowed_dir::AllowedDirectoriesConfig, Tool, ToolError};
 
+/// Tool for reading file contents with line numbering and pagination.
 pub struct ReadFileTool {
+    /// Configuration for allowed directory access
     allowed_dirs_config: AllowedDirectoriesConfig,
 }
 
 impl ReadFileTool {
+    /// Maximum characters to return in a single read
     pub const fn max_chars() -> usize {
         128_000
     }
 
+    /// Default number of lines to return per page
     pub fn default_limit() -> usize {
         2000
     }
@@ -22,10 +28,13 @@ impl ReadFileTool {
     }
 }
 
+/// Returns true if the MIME type is an image.
 fn is_image_mime(mime: &str) -> bool {
     mime.starts_with("image/")
 }
 
+/// Detect image MIME type from raw bytes using magic number signatures.
+/// Supports PNG, JPEG, GIF, WebP, and BMP.
 fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
         [0x89, 0x50, 0x4E, 0x47, ..] => Some("image/png"),
@@ -73,6 +82,7 @@ impl Tool for ReadFileTool {
 
     async fn execute(&self, args: serde_json::Value) -> Result<String, ToolError> {
         let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        // offset is 1-indexed (user-facing), convert to 0-indexed internally
         let offset = args
             .get("offset")
             .and_then(|v| v.as_i64())
@@ -83,6 +93,7 @@ impl Tool for ReadFileTool {
             .and_then(|v| v.as_i64())
             .unwrap_or(Self::default_limit() as i64) as usize;
 
+        // Security: canonicalize and verify path is within allowed directories
         let path = self.allowed_dirs_config.canonicalize_under_allowed(path)?;
 
         if !path.exists() {
@@ -102,10 +113,9 @@ impl Tool for ReadFileTool {
             return Ok(format!("(Empty file: {})", path.display()));
         }
 
-        // Try to detect image MIME from raw bytes
+        // Detect and handle image files
         if let Some(mime) = detect_image_mime(&raw) {
             if is_image_mime(mime) {
-                // For images, return a placeholder indicating the image
                 let size = raw.len();
                 return Ok(format!(
                     "(Image file: {}, {} bytes, MIME: {})\n\n\
@@ -119,6 +129,7 @@ impl Tool for ReadFileTool {
             }
         }
 
+        // Try to read as UTF-8 text
         let content = match String::from_utf8(raw) {
             Ok(c) => c,
             Err(_) => {
@@ -147,6 +158,7 @@ impl Tool for ReadFileTool {
         let start = offset - 1;
         let end = std::cmp::min(start + limit, total);
 
+        // Build output with line numbers (e.g., `1| let x = 1;`)
         let mut numbered = Vec::with_capacity(end - start);
         for (i, line) in all_lines[start..end].iter().enumerate() {
             numbered.push(format!("{}| {}", start + i + 1, line));
@@ -154,7 +166,7 @@ impl Tool for ReadFileTool {
 
         let mut result = numbered.join("\n");
 
-        // Truncate by characters if still too large
+        // Truncate by character count if still too large
         if result.len() > Self::max_chars() {
             let mut trimmed: Vec<String> = Vec::new();
             let mut chars = 0;
@@ -179,6 +191,7 @@ impl Tool for ReadFileTool {
             ));
         }
 
+        // Add pagination hints
         if end < total {
             result.push_str(&format!(
                 "\n\n(Showing lines {}-{} of {}. Use offset={} to continue.)",

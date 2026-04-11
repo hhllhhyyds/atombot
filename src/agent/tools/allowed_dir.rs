@@ -25,13 +25,16 @@ fn is_under(path: impl AsRef<Path>, directory: impl AsRef<Path>) -> bool {
 /// All paths are checked against this configuration before any file operation.
 #[derive(Debug, Clone, Default)]
 pub struct AllowedDirectoriesConfig {
+    /// Primary workspace directory (typically the project root)
     workspace: Option<PathBuf>,
+    /// User-specified allowed directory
     allowed_dir: Option<PathBuf>,
+    /// Additional allowed directories
     extra_allowed_dirs: Option<Vec<PathBuf>>,
 }
 
 impl AllowedDirectoriesConfig {
-    /// Creates a new empty configuration.
+    /// Creates a new empty configuration (no directories allowed).
     pub fn new() -> Self {
         Self::default()
     }

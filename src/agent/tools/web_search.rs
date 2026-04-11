@@ -1,4 +1,7 @@
 //! Web search tool — supports Brave, Tavily, SearXNG, Jina, DuckDuckGo.
+//!
+//! Each provider has different API requirements. DuckDuckGo is used as
+//! fallback when API keys are not configured for paid providers.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -6,18 +9,31 @@ use serde::{Deserialize, Serialize};
 use crate::agent::tools::{Tool, ToolError};
 use crate::security::network::validate_url_target;
 
+/// User agent string used for HTTP requests
 const USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (compatible; atombot/1.0)";
 
+/// Configuration for web search, loaded from environment variables.
 #[derive(Debug, Clone, Default)]
 pub struct WebSearchConfig {
+    /// Search provider: duckduckgo, brave, tavily, searxng, jina
     pub provider: String,
+    /// API key for paid providers (Brave, Tavily, Jina)
     pub api_key: String,
+    /// Base URL for self-hosted SearXNG instance
     pub base_url: String,
+    /// Maximum number of results to return
     pub max_results: usize,
 }
 
 impl WebSearchConfig {
+    /// Load configuration from environment variables.
+    ///
+    /// Environment variables:
+    /// - `WEB_SEARCH_PROVIDER` (default: duckduckgo)
+    /// - `WEB_SEARCH_API_KEY`
+    /// - `WEB_SEARCH_BASE_URL` (for SearXNG)
+    /// - `WEB_SEARCH_MAX_RESULTS` (default: 5)
     pub fn from_env() -> Self {
         Self {
             provider: std::env::var("WEB_SEARCH_PROVIDER").unwrap_or_else(|_| "duckduckgo".to_string()),
@@ -30,6 +46,8 @@ impl WebSearchConfig {
         }
     }
 }
+
+// Response structs for each search provider's API format
 
 #[derive(Debug, Deserialize)]
 struct BraveResponse {
@@ -78,6 +96,7 @@ struct JinaResponse {
     data: Vec<JinaResult>,
 }
 
+/// DuckDuckGo Instant Answer API response
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 struct DuckDuckGoResponse {
@@ -107,8 +126,10 @@ struct JinaResult {
     content: String,
 }
 
+/// Web search tool — dispatches to configured provider.
 pub struct WebSearchTool {
     config: WebSearchConfig,
+    /// Optional HTTP proxy
     proxy: Option<String>,
 }
 
@@ -118,14 +139,13 @@ impl WebSearchTool {
     }
 }
 
+/// Normalize search result text: strip HTML tags, decode entities, collapse whitespace.
 fn normalize(text: String) -> String {
     let text = regex::Regex::new(r"<[^>]+>")
         .unwrap()
         .replace_all(&text, "");
-    // Decode HTML entities
     let text = html_escape::decode_html_entities(&text);
     let text = text.trim().to_string();
-    // Normalize whitespace
     let text = regex::Regex::new(r"[ \t]+")
         .unwrap()
         .replace_all(&text, " ");
@@ -135,6 +155,7 @@ fn normalize(text: String) -> String {
     text.to_string()
 }
 
+/// Format search results as a readable string.
 fn format_results(query: &str, items: &[SearchItem], count: usize) -> String {
     if items.is_empty() {
         return format!("No results for: {query}");
@@ -151,6 +172,7 @@ fn format_results(query: &str, items: &[SearchItem], count: usize) -> String {
     lines.join("\n")
 }
 
+/// Internal representation of a single search result.
 #[derive(Clone)]
 struct SearchItem {
     title: String,
@@ -159,6 +181,8 @@ struct SearchItem {
 }
 
 impl WebSearchTool {
+    /// Search using Brave Search API.
+    /// Falls back to DuckDuckGo if `BRAVE_API_KEY` is not set.
     async fn search_brave(&self, query: &str, n: usize) -> String {
         let api_key = if self.config.api_key.is_empty() {
             std::env::var("BRAVE_API_KEY").unwrap_or_default()
@@ -209,6 +233,8 @@ impl WebSearchTool {
         }
     }
 
+    /// Search using Tavily AI Search API.
+    /// Falls back to DuckDuckGo if `TAVILY_API_KEY` is not set.
     async fn search_tavily(&self, query: &str, n: usize) -> String {
         let api_key = if self.config.api_key.is_empty() {
             std::env::var("TAVILY_API_KEY").unwrap_or_default()
@@ -262,6 +288,8 @@ impl WebSearchTool {
         }
     }
 
+    /// Search using a self-hosted SearXNG instance.
+    /// Requires `SEARXNG_BASE_URL` to be configured.
     async fn search_searxng(&self, query: &str, n: usize) -> String {
         let base_url = if self.config.base_url.is_empty() {
             std::env::var("SEARXNG_BASE_URL").unwrap_or_default()
@@ -275,6 +303,7 @@ impl WebSearchTool {
 
         let endpoint = format!("{}/search", base_url.trim_end_matches('/'));
 
+        // Security: validate SearXNG URL before making request
         if let Err(e) = validate_url_target(&endpoint) {
             return format!("Error: invalid SearXNG URL: {e}");
         }
@@ -311,6 +340,8 @@ impl WebSearchTool {
         }
     }
 
+    /// Search using Jina AI (jina.ai/s/jina-reader).
+    /// Falls back to DuckDuckGo on rate limit.
     async fn search_jina(&self, query: &str, n: usize) -> String {
         let api_key = if self.config.api_key.is_empty() {
             std::env::var("JINA_API_KEY").unwrap_or_default()
@@ -344,7 +375,7 @@ impl WebSearchTool {
                             .into_iter()
                             .take(n)
                             .map(|mut r| {
-                                // Truncate content to 500 chars
+                                // Truncate content to 500 chars to fit context
                                 if r.content.len() > 500 {
                                     r.content.truncate(500);
                                 }
@@ -364,6 +395,7 @@ impl WebSearchTool {
         }
     }
 
+    /// Search using DuckDuckGo Instant Answer API (free, no API key required).
     async fn search_duckduckgo(&self, query: &str, n: usize) -> String {
         let client = match self.build_client() {
             Ok(c) => c,
@@ -402,6 +434,7 @@ impl WebSearchTool {
         }
     }
 
+    /// Build a reqwest HTTP client with optional proxy.
     fn build_client(&self) -> Result<reqwest::Client, String> {
         let builder = reqwest::Client::builder()
             .user_agent(USER_AGENT)

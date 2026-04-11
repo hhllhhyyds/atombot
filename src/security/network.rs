@@ -1,9 +1,13 @@
 //! Network security utilities — SSRF protection and internal URL detection.
+//!
+//! Prevents the agent from accessing private/internal network resources
+//! by validating URLs before fetching and blocking private IP ranges.
 
 use std::net::{IpAddr, ToSocketAddrs};
 
 use thiserror::Error;
 
+/// Errors from network URL validation.
 #[derive(Error, Debug)]
 pub enum NetworkError {
     #[error("Only http/https allowed, got '{0}'")]
@@ -18,36 +22,40 @@ pub enum NetworkError {
     PrivateAddress(String, String),
 }
 
-/// Checks if the given IP address falls within a blocked private/internal network.
+/// Check if an IPv4/IPv6 address falls within a private/internal network range.
+///
+/// Blocks:
+/// - IPv4: 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16
+/// - IPv6: loopback (::1), unique local (fc00::/7), link-local (fe80::/10)
 fn is_blocked_private(addr: &IpAddr) -> bool {
     match addr {
         IpAddr::V4(ipv4) => {
             let octets = ipv4.octets();
-            // 0.0.0.0/8
+            // 0.0.0.0/8 — current network
             if octets[0] == 0 {
                 return true;
             }
-            // 10.0.0.0/8
+            // 10.0.0.0/8 — private
             if octets[0] == 10 {
                 return true;
             }
-            // 100.64.0.0/10 (carrier-grade NAT)
+            // 100.64.0.0/10 — carrier-grade NAT
             if octets[0] == 100 && (octets[1] & 0b11000000) == 0b01000000 {
                 return true;
             }
-            // 127.0.0.0/8
+            // 127.0.0.0/8 — loopback
             if octets[0] == 127 {
                 return true;
             }
-            // 169.254.0.0/16 (link-local)
+            // 169.254.0.0/16 — link-local
             if octets[0] == 169 && octets[1] == 254 {
                 return true;
             }
-            // 172.16.0.0/12
+            // 172.16.0.0/12 — private
             if octets[0] == 172 && (octets[1] & 0b11110000) == 0b00010000 {
                 return true;
             }
-            // 192.168.0.0/16
+            // 192.168.0.0/16 — private
             if octets[0] == 192 && octets[1] == 168 {
                 return true;
             }
@@ -55,16 +63,16 @@ fn is_blocked_private(addr: &IpAddr) -> bool {
         }
         IpAddr::V6(ipv6) => {
             let segments = ipv6.segments();
-            // ::1/128 (loopback)
+            // ::1/128 — loopback
             if ipv6.is_loopback() {
                 return true;
             }
-            // fc00::/7 (unique local)
+            // fc00::/7 — unique local
             let first = segments[0];
             if (first & 0xfe00) == 0xfc00 {
                 return true;
             }
-            // fe80::/10 (link-local)
+            // fe80::/10 — link-local
             if (first & 0xffc0) == 0xfe80 {
                 return true;
             }
@@ -73,9 +81,10 @@ fn is_blocked_private(addr: &IpAddr) -> bool {
     }
 }
 
-/// Validate a URL is safe to fetch: scheme, hostname, and resolved IPs.
+/// Validate a URL before fetching: checks scheme and resolves hostname to verify
+/// it doesn't point to a private/internal IP address.
 ///
-/// Returns `Ok(())` if safe, or `Err(NetworkError)` with details.
+/// Use this before making a request to prevent SSRF attacks.
 pub fn validate_url_target(url: &str) -> Result<(), NetworkError> {
     let parsed = url::Url::parse(url).map_err(|_e| NetworkError::MissingDomain)?;
 
@@ -104,7 +113,10 @@ pub fn validate_url_target(url: &str) -> Result<(), NetworkError> {
     Ok(())
 }
 
-/// Validate an already-fetched URL (after redirect). Only checks the resolved IP.
+/// Validate a URL after following redirects (only checks the resolved IP).
+///
+/// Unlike [`validate_url_target`], this skips scheme and hostname checks
+/// since the URL may have changed during redirect.
 pub fn validate_resolved_url(url: &str) -> Result<(), NetworkError> {
     let parsed = match url::Url::parse(url) {
         Ok(p) => p,
@@ -116,7 +128,7 @@ pub fn validate_resolved_url(url: &str) -> Result<(), NetworkError> {
         None => return Ok(()), // No hostname, skip
     };
 
-    // Check if the host itself is an IP address
+    // Check if hostname is itself a private IP
     if let Ok(ip) = hostname.parse::<IpAddr>() {
         if is_blocked_private(&ip) {
             return Err(NetworkError::PrivateAddress(
@@ -145,7 +157,8 @@ pub fn validate_resolved_url(url: &str) -> Result<(), NetworkError> {
     Ok(())
 }
 
-/// Check if a string contains any URLs that point to internal/private addresses.
+/// Check if any URL in the given text points to a private/internal address.
+/// Scans for `http://` and `https://` URLs and validates each one.
 pub fn contains_internal_url(text: &str) -> bool {
     let url_regex = regex::Regex::new(r#"https?://[^\s"'`;|<>]+"#).unwrap();
     for cap in url_regex.find_iter(text) {

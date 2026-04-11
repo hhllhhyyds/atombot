@@ -1,9 +1,13 @@
+//! Write file tool — creates or overwrites files with path validation.
+
 use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::agent::tools::{allowed_dir::AllowedDirectoriesConfig, Tool, ToolError};
 
+/// Tool for writing content to files.
 pub struct WriteFileTool {
+    /// Configuration for allowed directory access
     allowed_dirs_config: AllowedDirectoriesConfig,
 }
 
@@ -52,8 +56,11 @@ impl Tool for WriteFileTool {
             return Err(ToolError::InvalidArgs("content is required".to_string()));
         }
 
+        // Security: validate path is within allowed directories
+        // Also handles non-existent files by checking parent directory
         let path = self.allowed_dirs_config.resolve_for_write(path_str)?;
 
+        // Create parent directories if needed
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
